@@ -1,11 +1,11 @@
 {
   "type": "code",
   "modid": "waypointextensions",
-  "name": "waypointextensions",
-  "authors": ["Unknown"],
-  "description": "To be added",
+  "name": "Waypoint Extensions",
+  "authors": ["VintageDerek"],
+  "description": "Functions to help with waypoints. Currently contains commands to share waypoints with other worlds",
   "version": "1.0.0",
   "dependencies": {
-    "game": ""
+    "game": "1.17.0-rc.5"
   }
 }
