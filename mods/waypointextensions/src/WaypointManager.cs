@@ -20,38 +20,24 @@ using Vintagestory.API.MathTools;
 using Vintagestory.API.Server;
 using Vintagestory.API.Util;
 using Vintagestory.GameContent;
+using WaypointManager.ExtensionMethods;
+using WaypointManager.Utilities;
+using WaypointManager.Networking;
+using WaypointManager.Models;
 
-namespace Vintagestory.ServerMods.WaypointExtensions
+namespace Vintagestory.ServerMods.WaypointManager
 {
-    public class WaypointsWithSpawnPos
-    {
-        public IList<Waypoint> waypoints;
-        public Vec3d worldSpawnPos;
-    }
-    public class WaypointExtensions : ModSystem
+    public class WaypointManager : ModSystem
     {
         private readonly string _channel = "waypointmanagement";
 
-        ICoreServerAPI sapi;
-        ICoreClientAPI capi;
+        private ICoreServerAPI sapi;
+        private ICoreClientAPI capi;
 
-        IServerNetworkChannel serverChannel;
-        IClientNetworkChannel clientChannel;
+        private IServerNetworkChannel serverChannel;
+        private IClientNetworkChannel clientChannel;
 
-        [ProtoContract(ImplicitFields = ImplicitFields.AllPublic)]
-        public class WaypointImportMessage
-        {
-            public IList<Waypoint> message;
-            public Vec3d worldSpawnPos;
-        }
-
-        [ProtoContract(ImplicitFields = ImplicitFields.AllPublic)]
-        public class WaypointImportResponse
-        {
-            public string response;
-        }
-
-        public WaypointExtensions()
+        public WaypointManager()
         {}
         public override bool ShouldLoad(EnumAppSide side)
         {
@@ -62,8 +48,7 @@ namespace Vintagestory.ServerMods.WaypointExtensions
         {
             sapi = api ?? throw new ArgumentException("Server API is null");
 
-            serverChannel =
-                api.Network.RegisterChannel(_channel)
+            serverChannel = api.Network.RegisterChannel(_channel)
                 .RegisterMessageType(typeof(WaypointImportMessage))
                 .RegisterMessageType(typeof(WaypointImportResponse))
                 .SetMessageHandler<WaypointImportResponse>(OnClientMessage);
@@ -75,12 +60,10 @@ namespace Vintagestory.ServerMods.WaypointExtensions
         {
             capi = api ?? throw new ArgumentException("Client API is null");
 
-            clientChannel =
-                api.Network.RegisterChannel(_channel)
+            clientChannel = api.Network.RegisterChannel(_channel)
                 .RegisterMessageType(typeof(WaypointImportMessage))
                 .RegisterMessageType(typeof(WaypointImportResponse))
-                .SetMessageHandler<WaypointImportMessage>(OnServerMessage)
-            ;
+                .SetMessageHandler<WaypointImportMessage>(OnServerMessage);
         }
 
         private void OnServerMessage(WaypointImportMessage networkMessage)
@@ -90,11 +73,10 @@ namespace Vintagestory.ServerMods.WaypointExtensions
             {
                 return;
             }
-            foreach(var w in waypoints)
+            waypoints.ToList().ForEach(w =>
             {
-                var color = ColorUtil.Int2Hex(w.Color);
-                capi.SendChatMessage($"/waypoint addati {w.Icon} {w.Position.X} {w.Position.Y} {w.Position.Z} {w.Pinned.ToString().ToLower()} {color:X} {w.Title}");
-            }
+                capi.SendChatMessage($"/waypoint addati {w.Icon} {w.Position.X} {w.Position.Y} {w.Position.Z} {w.Pinned.ToString().ToLower()} {ColorUtil.Int2Hex(w.Color):X} {w.Title}");
+            });
             clientChannel.SendPacket(new WaypointImportResponse()
             {
                 response = $"{waypoints.Count} waypoints added to map."
@@ -114,13 +96,7 @@ namespace Vintagestory.ServerMods.WaypointExtensions
         {
             string cmd = args.PopWord();
             Vec3d spawnpos = sapi.World.DefaultSpawnPosition.XYZ;
-            // Get spawn-offset waypoints
-            var waypoints = GetWaypoints().Select(w =>
-            {
-                w.Position.X = w.Position.X - spawnpos.X;
-                w.Position.Z = w.Position.Z - spawnpos.Z;
-                return w;
-            }).ToList();
+            var waypoints = GetWaypoints().ToList();
 
             switch (cmd)
             {
@@ -140,7 +116,8 @@ namespace Vintagestory.ServerMods.WaypointExtensions
             var json = BuildWaypointJson(waypoints, spawnpos);
             try
             {
-                await WriteTextAsync("waypoints.json", json);
+                await FileUtilities.WriteTextAsync("waypoints.json", json);
+                player.SendMessage(groupId, $"Exported {waypoints.Count} waypoints to waypoints.json", EnumChatType.CommandSuccess);
             }
             catch (Exception e)
             {
@@ -152,29 +129,29 @@ namespace Vintagestory.ServerMods.WaypointExtensions
         {
             try
             {
-                var wpJson = await ReadTextAsync("waypoints.json");
+                var wpJson = await FileUtilities.ReadTextAsync("waypoints.json");
                 var importedData = JsonConvert.DeserializeObject<WaypointsWithSpawnPos>(wpJson);
                 var importedWaypoints = importedData.waypoints ?? new List<Waypoint>();
                 var importedCount = importedWaypoints.Count;
-                var spawnpos = sapi.World.DefaultSpawnPosition.XYZ;
+                var spawnpos = sapi.World.DefaultSpawnPosition.XYZ.WithoutYComponent();
                 player.SendMessage(groupId, $"Importing {importedCount} waypoints", EnumChatType.CommandSuccess);
 
                 // De-duping logic to prevent same waypoints being imported
-                importedWaypoints = importedWaypoints.Where(w =>
-                {
-                    return !waypoints.Any(waypoint =>
-                    {
-                        return w.Title == waypoint.Title
-                        && w.Icon == waypoint.Icon
-                        && w.Position.X == waypoint.Position.X
-                        && w.Position.Y == waypoint.Position.Y
-                        && w.Position.Z == waypoint.Position.Z;
-                    });
-                }).Select(w =>
+                importedWaypoints = importedWaypoints.Select(importedWaypoint =>
                 {
                     // Attribute waypoints to player who imported them
-                    w.OwningPlayerUid = player.PlayerUID;
-                    return w;
+                    importedWaypoint.OwningPlayerUid = player.PlayerUID;
+                    // Normalize waypoints from map center
+                    importedWaypoint.NormalizePosition(importedData.worldSpawnPos.WithoutYComponent());
+                    return importedWaypoint;
+                }).Where(importedWaypoint =>
+                {
+                    return !waypoints.Select(waypoint => waypoint.NormalizePosition(spawnpos)).Any(waypoint =>
+                    {
+                        return importedWaypoint.Title == waypoint.Title
+                        && importedWaypoint.Icon == waypoint.Icon
+                        && importedWaypoint.Position == waypoint.Position;
+                    });
                 }).ToList() ?? new List<Waypoint>();
                 var duplicates = importedCount - importedWaypoints.Count;
                 player.SendMessage(groupId, $"Imported {importedWaypoints.Count} waypoints - {duplicates} were duplicates", EnumChatType.CommandSuccess);
@@ -244,38 +221,6 @@ namespace Vintagestory.ServerMods.WaypointExtensions
         private string BuildWaypointJson(IList<Waypoint> waypoints, Vec3d spawnpos)
         {
             return JsonConvert.SerializeObject(new WaypointsWithSpawnPos() { waypoints = waypoints, worldSpawnPos = spawnpos });
-        }
-
-        static async Task WriteTextAsync(string filePath, string text)
-        {
-            byte[] encodedText = Encoding.Unicode.GetBytes(text);
-
-            using (FileStream sourceStream = new FileStream(filePath,
-                FileMode.Create, FileAccess.Write, FileShare.None,
-                bufferSize: 4096, useAsync: true))
-            {
-                await sourceStream.WriteAsync(encodedText, 0, encodedText.Length);
-            };
-        }
-
-        static async Task<string> ReadTextAsync(string filePath)
-        {
-            using (FileStream sourceStream = new FileStream(filePath,
-                FileMode.Open, FileAccess.Read, FileShare.Read,
-                bufferSize: 4096, useAsync: true))
-            {
-                StringBuilder sb = new StringBuilder();
-
-                byte[] buffer = new byte[0x1000];
-                int numRead;
-                while ((numRead = await sourceStream.ReadAsync(buffer, 0, buffer.Length)) != 0)
-                {
-                    string text = Encoding.Unicode.GetString(buffer, 0, numRead);
-                    sb.Append(text);
-                }
-
-                return sb.ToString();
-            }
         }
     }
 }
