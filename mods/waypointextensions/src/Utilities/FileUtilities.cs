@@ -9,11 +9,15 @@ namespace WaypointManager.Utilities
 {
     public static class FileUtilities
     {
-        public static async Task WriteTextAsync(string filePath, string text)
+        public static async Task WriteTextAsync(string filePath, string filename, string text)
         {
+            if (!Directory.Exists(filePath))
+            {
+                Directory.CreateDirectory(filePath);
+            }
             byte[] encodedText = Encoding.Unicode.GetBytes(text);
 
-            using (FileStream sourceStream = new FileStream(filePath,
+            using (FileStream sourceStream = new FileStream($"{filePath}/{filename}",
                 FileMode.Create, FileAccess.Write, FileShare.None,
                 bufferSize: 4096, useAsync: true))
             {

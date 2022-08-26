@@ -116,8 +116,8 @@ namespace Vintagestory.ServerMods.WaypointManager
             var json = BuildWaypointJson(waypoints, spawnpos);
             try
             {
-                await FileUtilities.WriteTextAsync("waypoints.json", json);
-                player.SendMessage(groupId, $"Exported {waypoints.Count} waypoints to waypoints.json", EnumChatType.CommandSuccess);
+                await FileUtilities.WriteTextAsync($"{sapi.DataBasePath}/ModData/WaypointManager", "waypoints.json", json);
+                player.SendMessage(groupId, $"Exported {waypoints.Count} waypoints to {sapi.DataBasePath}/ModData/WaypointManager/waypoints.json", EnumChatType.CommandSuccess);
             }
             catch (Exception e)
             {
@@ -129,7 +129,7 @@ namespace Vintagestory.ServerMods.WaypointManager
         {
             try
             {
-                var wpJson = await FileUtilities.ReadTextAsync("waypoints.json");
+                var wpJson = await FileUtilities.ReadTextAsync($"{sapi.DataBasePath}/ModData/WaypointManager/waypoints.json");
                 var importedData = JsonConvert.DeserializeObject<WaypointsWithSpawnPos>(wpJson);
                 var importedWaypoints = importedData.waypoints ?? new List<Waypoint>();
                 var importedCount = importedWaypoints.Count;
