@@ -22,7 +22,7 @@ using Vintagestory.API.Util;
 using Vintagestory.GameContent;
 using WaypointManager.ExtensionMethods;
 using WaypointManager.Utilities;
-using WaypointManager.Networking;
+using WaypointManager.Models.Networking;
 using WaypointManager.Models;
 
 namespace Vintagestory.ServerMods.WaypointManager

@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 using Vintagestory.API.MathTools;
 using Vintagestory.GameContent;
 
-namespace WaypointManager.Networking
+namespace WaypointManager.Models.Networking
 {
     [ProtoContract(ImplicitFields = ImplicitFields.AllPublic)]
     public class WaypointImportMessage

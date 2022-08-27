@@ -91,7 +91,7 @@
   <ItemGroup>
     <Compile Include="src\Models\WaypointWithSpawnPos.cs" />
     <Compile Include="src\ExtensionMethods\ExtensionMethods.cs" />
-    <Compile Include="src\Networking\WaypointImport.cs" />
+    <Compile Include="src\Models\Networking\WaypointImport.cs" />
     <Compile Include="src\Utilities\FileUtilities.cs" />
     <Compile Include="src\WaypointManager.cs" />
   </ItemGroup>
