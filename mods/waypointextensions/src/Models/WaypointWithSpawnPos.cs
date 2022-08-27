@@ -1,4 +1,5 @@
-﻿using System;
+﻿using Newtonsoft.Json;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -10,7 +11,9 @@ namespace WaypointManager.Models
 {
     public class WaypointsWithSpawnPos
     {
-        public IList<Waypoint> waypoints;
-        public Vec3d worldSpawnPos;
+        [JsonProperty("waypoints")]
+        public IList<Waypoint> Waypoints;
+        [JsonProperty("worldSpawnPos")]
+        public Vec3d WorldSpawnPos;
     }
 }

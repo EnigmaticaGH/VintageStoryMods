@@ -10,15 +10,21 @@ using Vintagestory.GameContent;
 namespace WaypointManager.Models.Networking
 {
     [ProtoContract(ImplicitFields = ImplicitFields.AllPublic)]
-    public class WaypointImportMessage
+    public class WaypointGuiDataRequestMessage
     {
-        public IList<Waypoint> Message;
+        public string Message;
+    }
+
+    [ProtoContract(ImplicitFields = ImplicitFields.AllPublic)]
+    public class WaypointGuiMessage
+    {
+        public IList<Waypoint> Waypoints;
         public Vec3d WorldSpawnPos;
     }
 
     [ProtoContract(ImplicitFields = ImplicitFields.AllPublic)]
-    public class WaypointImportResponse
+    public class WaypointGuiResponse
     {
-        public string Response;
+        public IList<Waypoint> Response;
     }
 }

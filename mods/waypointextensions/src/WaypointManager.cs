@@ -29,13 +29,15 @@ namespace Vintagestory.ServerMods.WaypointManager
 {
     public class WaypointManager : ModSystem
     {
-        private readonly string _channel = "waypointmanagement";
+        private readonly string _waypointManagerChannel = "waypointmanager";
 
-        private ICoreServerAPI sapi;
-        private ICoreClientAPI capi;
+        private ICoreServerAPI ServerApi;
+        private ICoreClientAPI ClientApi;
 
-        private IServerNetworkChannel serverChannel;
-        private IClientNetworkChannel clientChannel;
+        private IServerNetworkChannel ServerChannel;
+        private IClientNetworkChannel ClientChannel;
+
+        private WaypointGUI WaypointGUIDialog;
 
         public WaypointManager()
         {}
@@ -46,48 +48,84 @@ namespace Vintagestory.ServerMods.WaypointManager
 
         public override void StartServerSide(ICoreServerAPI api)
         {
-            sapi = api ?? throw new ArgumentException("Server API is null");
+            ServerApi = api ?? throw new ArgumentException("Server API is null");
 
-            serverChannel = api.Network.RegisterChannel(_channel)
+            ServerChannel = api.Network.RegisterChannel(_waypointManagerChannel)
                 .RegisterMessageType(typeof(WaypointImportMessage))
                 .RegisterMessageType(typeof(WaypointImportResponse))
-                .SetMessageHandler<WaypointImportResponse>(OnClientMessage);
+                .RegisterMessageType(typeof(WaypointGuiMessage))
+                .RegisterMessageType(typeof(WaypointGuiDataRequestMessage))
+                .RegisterMessageType(typeof(WaypointGuiResponse))
+                .SetMessageHandler<WaypointImportResponse>(OnImportComplete)
+                .SetMessageHandler<WaypointGuiDataRequestMessage>(OnGuiDataRequest);
 
             api.RegisterCommand("wpe", "Functions for managing waypoints", "[import|export]", OnCmdWpe, Privilege.chat);
         }
 
         public override void StartClientSide(ICoreClientAPI api)
         {
-            capi = api ?? throw new ArgumentException("Client API is null");
+            ClientApi = api ?? throw new ArgumentException("Client API is null");
 
-            clientChannel = api.Network.RegisterChannel(_channel)
+            ClientApi.Input.RegisterHotKey("waypointmanagergui", "Open Waypoint Manager", GlKeys.U, HotkeyType.HelpAndOverlays);
+            ClientApi.Input.SetHotKeyHandler("waypointmanagergui", ToggleGui);
+
+            ClientChannel = api.Network.RegisterChannel(_waypointManagerChannel)
                 .RegisterMessageType(typeof(WaypointImportMessage))
                 .RegisterMessageType(typeof(WaypointImportResponse))
-                .SetMessageHandler<WaypointImportMessage>(OnServerMessage);
+                .RegisterMessageType(typeof(WaypointGuiMessage))
+                .RegisterMessageType(typeof(WaypointGuiDataRequestMessage))
+                .RegisterMessageType(typeof(WaypointGuiResponse))
+                .SetMessageHandler<WaypointImportMessage>(OnImportRequest)
+                .SetMessageHandler<WaypointGuiMessage>(OnGuiDataRequestFulfilled);
+
+            WaypointGUIDialog = new WaypointGUI(ClientApi);
+
+            WaypointGUIDialog.OnOpened += OnGuiOpened;
         }
 
-        private void OnServerMessage(WaypointImportMessage networkMessage)
+        private void OnImportRequest(WaypointImportMessage networkMessage)
         {
-            var waypoints = networkMessage.message;
+            var waypoints = networkMessage.Message;
             if (waypoints == null)
             {
                 return;
             }
             waypoints.ToList().ForEach(w =>
             {
-                capi.SendChatMessage($"/waypoint addati {w.Icon} {w.Position.X} {w.Position.Y} {w.Position.Z} {w.Pinned.ToString().ToLower()} {ColorUtil.Int2Hex(w.Color):X} {w.Title}");
+                ClientApi.SendChatMessage($"/waypoint addati {w.Icon} {w.Position.X} {w.Position.Y} {w.Position.Z} {w.Pinned.ToString().ToLower()} {ColorUtil.Int2Hex(w.Color):X} {w.Title}");
             });
-            clientChannel.SendPacket(new WaypointImportResponse()
+            ClientChannel.SendPacket(new WaypointImportResponse()
             {
-                response = $"{waypoints.Count} waypoints added to map."
+                Response = $"{waypoints.Count} waypoints added to map."
             });
         }
 
-        private void OnClientMessage(IPlayer fromPlayer, WaypointImportResponse networkMessage)
+        private void OnGuiOpened()
         {
-            sapi.SendMessageToGroup(
+            ClientApi.SendChatMessage("GUI Opened!");
+            ClientChannel.SendPacket(new WaypointGuiDataRequestMessage() { Message = "Waypoints" });
+        }
+
+        private void OnGuiDataRequest(IPlayer fromPlayer, WaypointGuiDataRequestMessage networkMessage)
+        {
+            ServerChannel.SendPacket(new WaypointGuiMessage() { Waypoints = GetWaypoints(), WorldSpawnPos = ServerApi.World.DefaultSpawnPosition.XYZ }, (IServerPlayer)fromPlayer);
+        }
+
+        private void OnGuiDataRequestFulfilled(WaypointGuiMessage networkMessage)
+        {
+            if (WaypointGUIDialog != null)
+            {
+                WaypointGUIDialog.Waypoints = networkMessage.Waypoints;
+                WaypointGUIDialog.WorldMiddle = networkMessage.WorldSpawnPos;
+                WaypointGUIDialog.OnGuiDataReceived();
+            }
+        }
+
+        private void OnImportComplete(IPlayer fromPlayer, WaypointImportResponse networkMessage)
+        {
+            ServerApi.SendMessageToGroup(
                 GlobalConstants.GeneralChatGroup,
-                $"{fromPlayer.PlayerName}: {networkMessage.response}",
+                $"{fromPlayer.PlayerName}: {networkMessage.Response}",
                 EnumChatType.Notification
             );
         }
@@ -95,7 +133,7 @@ namespace Vintagestory.ServerMods.WaypointManager
         private async void OnCmdWpe(IServerPlayer player, int groupId, CmdArgs args)
         {
             string cmd = args.PopWord();
-            Vec3d spawnpos = sapi.World.DefaultSpawnPosition.XYZ;
+            Vec3d spawnpos = ServerApi.World.DefaultSpawnPosition.XYZ;
             var waypoints = GetWaypoints().ToList();
 
             switch (cmd)
@@ -116,8 +154,8 @@ namespace Vintagestory.ServerMods.WaypointManager
             var json = BuildWaypointJson(waypoints, spawnpos);
             try
             {
-                await FileUtilities.WriteTextAsync($"{sapi.DataBasePath}/ModData/WaypointManager", "waypoints.json", json);
-                player.SendMessage(groupId, $"Exported {waypoints.Count} waypoints to {sapi.DataBasePath}/ModData/WaypointManager/waypoints.json", EnumChatType.CommandSuccess);
+                await FileUtilities.WriteTextAsync($"{ServerApi.DataBasePath}/ModData/WaypointManager", "waypoints.json", json);
+                player.SendMessage(groupId, $"Exported {waypoints.Count} waypoints to {ServerApi.DataBasePath}/ModData/WaypointManager/waypoints.json", EnumChatType.CommandSuccess);
             }
             catch (Exception e)
             {
@@ -129,11 +167,11 @@ namespace Vintagestory.ServerMods.WaypointManager
         {
             try
             {
-                var wpJson = await FileUtilities.ReadTextAsync($"{sapi.DataBasePath}/ModData/WaypointManager/waypoints.json");
+                var wpJson = await FileUtilities.ReadTextAsync($"{ServerApi.DataBasePath}/ModData/WaypointManager/waypoints.json");
                 var importedData = JsonConvert.DeserializeObject<WaypointsWithSpawnPos>(wpJson);
-                var importedWaypoints = importedData.waypoints ?? new List<Waypoint>();
+                var importedWaypoints = importedData.Waypoints ?? new List<Waypoint>();
                 var importedCount = importedWaypoints.Count;
-                var spawnpos = sapi.World.DefaultSpawnPosition.XYZ.WithoutYComponent();
+                var spawnpos = ServerApi.World.DefaultSpawnPosition.XYZ.WithoutYComponent();
                 player.SendMessage(groupId, $"Importing {importedCount} waypoints", EnumChatType.CommandSuccess);
 
                 // De-duping logic to prevent same waypoints being imported
@@ -142,7 +180,7 @@ namespace Vintagestory.ServerMods.WaypointManager
                     // Attribute waypoints to player who imported them
                     importedWaypoint.OwningPlayerUid = player.PlayerUID;
                     // Normalize waypoints from map center
-                    importedWaypoint.NormalizePosition(importedData.worldSpawnPos.WithoutYComponent());
+                    importedWaypoint.NormalizePosition(importedData.WorldSpawnPos.WithoutYComponent());
                     return importedWaypoint;
                 }).Where(importedWaypoint =>
                 {
@@ -157,10 +195,10 @@ namespace Vintagestory.ServerMods.WaypointManager
                 player.SendMessage(groupId, $"Imported {importedWaypoints.Count} waypoints - {duplicates} were duplicates", EnumChatType.CommandSuccess);
 
                 // Let client know to begin importing waypoints
-                serverChannel.BroadcastPacket(new WaypointImportMessage()
+                ServerChannel.BroadcastPacket(new WaypointImportMessage()
                 {
-                    message = importedWaypoints,
-                    worldSpawnPos = spawnpos
+                    Message = importedWaypoints,
+                    WorldSpawnPos = spawnpos
                 });
 
                 // Add waypoints to global list and save, returning the original coordinates, adjusted for current world size
@@ -169,7 +207,7 @@ namespace Vintagestory.ServerMods.WaypointManager
                     w.Position = w.Position + spawnpos;
                     return w;
                 }));
-                sapi.WorldManager.SaveGame.StoreData("playerMapMarkers_v2", SerializerUtil.Serialize(waypoints));
+                ServerApi.WorldManager.SaveGame.StoreData("playerMapMarkers_v2", SerializerUtil.Serialize(waypoints));
             }
             catch (Exception e)
             {
@@ -181,19 +219,19 @@ namespace Vintagestory.ServerMods.WaypointManager
         {
             // Copied from the Essentials mod lol
             var waypoints = new List<Waypoint>();
-            if (sapi != null)
+            if (ServerApi != null)
             {
                 try
                 {
-                    byte[] data = sapi.WorldManager.SaveGame.GetData("playerMapMarkers_v2");
+                    byte[] data = ServerApi.WorldManager.SaveGame.GetData("playerMapMarkers_v2");
                     if (data != null)
                     {
                         waypoints = SerializerUtil.Deserialize<List<Waypoint>>(data);
-                        sapi.World.Logger.Notification("Successfully loaded " +waypoints.Count + " waypoints");
+                        ServerApi.World.Logger.Notification("Successfully loaded " +waypoints.Count + " waypoints");
                     }
                     else
                     {
-                        data = sapi.WorldManager.SaveGame.GetData("playerMapMarkers");
+                        data = ServerApi.WorldManager.SaveGame.GetData("playerMapMarkers");
                         if (data != null) waypoints = JsonUtil.FromBytes<List<Waypoint>>(data);
                     }
 
@@ -203,7 +241,7 @@ namespace Vintagestory.ServerMods.WaypointManager
                         if (wp.Title == null) wp.Title = wp.Text; // Not sure how this happenes. For some reason the title moved into text
                         if (wp == null)
                         {
-                            sapi.World.Logger.Error("Waypoint with no position loaded, will remove");
+                            ServerApi.World.Logger.Error("Waypoint with no position loaded, will remove");
                             waypoints.RemoveAt(i);
                             i--;
                         }
@@ -211,7 +249,7 @@ namespace Vintagestory.ServerMods.WaypointManager
                 }
                 catch (Exception e)
                 {
-                    sapi.World.Logger.Error("Failed deserializing player map markers. Won't load them, sorry! Exception thrown: ", e);
+                    ServerApi.World.Logger.Error("Failed deserializing player map markers. Won't load them, sorry! Exception thrown: ", e);
                 }
                 return waypoints;
             }
@@ -220,7 +258,15 @@ namespace Vintagestory.ServerMods.WaypointManager
 
         private string BuildWaypointJson(IList<Waypoint> waypoints, Vec3d spawnpos)
         {
-            return JsonConvert.SerializeObject(new WaypointsWithSpawnPos() { waypoints = waypoints, worldSpawnPos = spawnpos });
+            return JsonConvert.SerializeObject(new WaypointsWithSpawnPos() { Waypoints = waypoints, WorldSpawnPos = spawnpos });
+        }
+
+        private bool ToggleGui(KeyCombination comb)
+        {
+            if (WaypointGUIDialog.IsOpened()) WaypointGUIDialog.TryClose();
+            else WaypointGUIDialog.TryOpen();
+
+            return true;
         }
     }
 }

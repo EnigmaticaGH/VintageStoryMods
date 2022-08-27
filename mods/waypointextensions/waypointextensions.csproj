@@ -89,10 +89,12 @@
     <Folder Include="assets\" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="src\Models\Networking\WaypointGUI.cs" />
     <Compile Include="src\Models\WaypointWithSpawnPos.cs" />
     <Compile Include="src\ExtensionMethods\ExtensionMethods.cs" />
     <Compile Include="src\Models\Networking\WaypointImport.cs" />
     <Compile Include="src\Utilities\FileUtilities.cs" />
+    <Compile Include="src\WaypointGUI.cs" />
     <Compile Include="src\WaypointManager.cs" />
   </ItemGroup>
   <ItemGroup>
